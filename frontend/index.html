@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>3D粒子爱心 - 手势交互</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { 
+      overflow: hidden; 
+      background: #000; 
+      font-family: 'Arial', sans-serif;
+    }
+    #canvas-container { 
+      width: 100vw; 
+      height: 100vh; 
+      position: fixed;
+      top: 0;
+      left: 0;
+    }
+    #video-container {
+      position: fixed;
+      bottom: 20px;
+      right: 20px;
+      width: 200px;
+      height: 150px;
+      border: 2px solid rgba(255, 215, 0, 0.6);
+      border-radius: 12px;
+      overflow: hidden;
+      z-index: 100;
+      box-shadow: 0 0 20px rgba(255, 215, 0, 0.3);
+      background: rgba(0, 0, 0, 0.5);
+    }
+    #webcam {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      transform: scaleX(-1);
+    }
+    #gesture-status {
+      position: fixed;
+      top: 20px;
+      left: 20px;
+      color: #ffd700;
+      font-size: 18px;
+      z-index: 100;
+      text-shadow: 0 0 10px rgba(255, 215, 0, 0.5);
+      background: rgba(0, 0, 0, 0.5);
+      padding: 10px 16px;
+      border-radius: 8px;
+    }
+    #upload-container {
+      position: fixed;
+      top: 20px;
+      right: 20px;
+      z-index: 100;
+    }
+    #upload-btn {
+      background: linear-gradient(135deg, #ffd700, #ff8c00);
+      border: none;
+      padding: 12px 24px;
+      color: #000;
+      font-weight: bold;
+      border-radius: 25px;
+      cursor: pointer;
+      font-size: 14px;
+      transition: all 0.3s;
+    }
+    #upload-btn:hover {
+      transform: scale(1.05);
+      box-shadow: 0 0 20px rgba(255, 215, 0, 0.5);
+    }
+    #file-input { display: none; }
+    #instructions {
+      position: fixed;
+      bottom: 20px;
+      left: 20px;
+      color: rgba(255, 215, 0, 0.9);
+      font-size: 14px;
+      z-index: 100;
+      max-width: 300px;
+      line-height: 1.6;
+      background: rgba(0, 0, 0, 0.5);
+      padding: 12px 16px;
+      border-radius: 10px;
+    }
+    .loading {
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      color: #ffd700;
+      font-size: 24px;
+      z-index: 1000;
+    }
+    @keyframes slideIn {
+      from { transform: translateX(100%); opacity: 0; }
+      to { transform: translateX(0); opacity: 1; }
+    }
+    @keyframes slideOut {
+      from { transform: translateX(0); opacity: 1; }
+      to { transform: translateX(100%); opacity: 0; }
+    }
+  </style>
+</head>
+<body>
+  <div id="canvas-container"></div>
+  <div id="video-container">
+    <video id="webcam" autoplay playsinline></video>
+  </div>
+  <div id="gesture-status">手势状态: 等待检测...</div>
+  <div id="upload-container">
+    <button id="upload-btn">上传照片</button>
+    <input type="file" id="file-input" accept="image/*" multiple>
+  </div>
+  <div id="instructions">
+    <strong>手势控制:</strong><br>
+    ✋ 五指张开 - 放大爱心<br>
+    ✊ 五指并拢 - 缩小/取消选择<br>
+    ☝️ 食指指向 - 选择/移动照片
+  </div>
+  <div class="loading" id="loading">加载中...</div>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>

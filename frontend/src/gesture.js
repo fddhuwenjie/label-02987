@@ -10,19 +10,37 @@ let gestureState = 'none';
 let fingerPosition = { x: 0, y: 0 };
 let isProcessing = false;
 
+// 动态加载 MediaPipe Hands
+async function loadMediaPipeHands() {
+  return new Promise((resolve, reject) => {
+    // 检查是否已加载
+    if (window.Hands) {
+      resolve(window.Hands);
+      return;
+    }
+    
+    const script = document.createElement('script');
+    script.src = 'https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js';
+    script.crossOrigin = 'anonymous';
+    script.onload = () => {
+      if (window.Hands) {
+        resolve(window.Hands);
+      } else {
+        reject(new Error('MediaPipe Hands 加载失败'));
+      }
+    };
+    script.onerror = () => reject(new Error('MediaPipe 脚本加载失败'));
+    document.head.appendChild(script);
+  });
+}
+
 export async function initHandTracking() {
   const videoElement = document.getElementById('webcam');
   
-  // 检查 MediaPipe 是否从 CDN 加载
-  if (typeof window.Hands === 'undefined') {
-    log('error', 'Gesture', 'MediaPipe Hands 未加载');
-    showToast('手势识别库加载失败，请刷新页面', 'error');
-    updateStatus('gesture-status', '手势状态: 库加载失败');
-    return false;
-  }
-  
   try {
-    hands = new window.Hands({
+    const Hands = await loadMediaPipeHands();
+    
+    hands = new Hands({
       locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
     });
     
@@ -49,7 +67,6 @@ export async function initHandTracking() {
     });
     videoElement.srcObject = stream;
     
-    // 等待视频加载完成
     await new Promise((resolve) => {
       videoElement.onloadedmetadata = () => {
         videoElement.play();
@@ -59,7 +76,6 @@ export async function initHandTracking() {
     
     log('info', 'Gesture', '摄像头访问成功');
     
-    // 使用 requestAnimationFrame 循环发送帧
     async function processFrame() {
       if (hands && videoElement.readyState >= 2 && !isProcessing) {
         isProcessing = true;
@@ -95,8 +111,6 @@ export async function initHandTracking() {
   }
 }
 
-
-// 手势检测
 function detectGesture(landmarks) {
   const fingerTips = [8, 12, 16, 20];
   const fingerBases = [6, 10, 14, 18];
@@ -114,7 +128,6 @@ function detectGesture(landmarks) {
   const thumbExtended = landmarks[thumbTip].x < landmarks[thumbBase].x;
   if (thumbExtended) extendedFingers++;
   
-  // 检查是否只有食指伸出
   const indexExtended = landmarks[8].y < landmarks[6].y;
   const middleExtended = landmarks[12].y < landmarks[10].y;
   
@@ -132,7 +145,6 @@ function detectGesture(landmarks) {
   return 'none';
 }
 
-// 手势结果处理
 function handleGestureChange(gesture) {
   if (gesture === 'open') {
     updateStatus('gesture-status', '手势状态: ✋ 五指张开 - 放大');
@@ -144,7 +156,6 @@ function handleGestureChange(gesture) {
     }
   } else if (gesture === 'closed') {
     updateStatus('gesture-status', '手势状态: ✊ 五指并拢 - 缩小/取消选择');
-    // 如果在照片模式下，握拳取消选择当前照片
     if (getIsExploded()) {
       deselectPhoto();
     } else {
@@ -164,7 +175,6 @@ function onHandResults(results) {
   if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
     const landmarks = results.multiHandLandmarks[0];
     
-    // 获取食指尖位置（镜像翻转）
     const indexTip = landmarks[8];
     fingerPosition.x = (1 - indexTip.x) * window.innerWidth;
     fingerPosition.y = indexTip.y * window.innerHeight;
@@ -173,7 +183,6 @@ function onHandResults(results) {
     gestureState = gesture;
     handleGestureChange(gesture);
     
-    // 食指交互
     if (gesture === 'pointing' && getIsExploded()) {
       handlePhotoInteraction(fingerPosition, true);
     } else {

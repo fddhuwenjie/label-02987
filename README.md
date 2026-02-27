@@ -100,10 +100,19 @@ npm run test:coverage # 生成覆盖率报告
 
 ### 依赖说明
 
-- `three` - 3D渲染核心库
-- `@mediapipe/hands` - 手势识别（运行时通过CDN加载，package.json中声明用于版本管理）
+- `three` - 3D渲染核心库（npm 本地安装）
 - `vite` - 开发构建工具
 - `vitest` - 测试框架
+
+#### 关于 MediaPipe 的加载方式
+
+MediaPipe Hands 采用运行时动态加载脚本的方式，而非在 package.json 中声明依赖，原因如下：
+
+1. **不支持标准 ES Module**：`@mediapipe/hands` 包设计为浏览器全局脚本，直接 `import { Hands } from '@mediapipe/hands'` 会导致初始化失败
+2. **模型文件需远程加载**：MediaPipe 的 WASM 和模型文件（约 10MB+）必须通过 `locateFile` 从 CDN 获取，无法打包到本地
+3. **避免依赖冲突**：在 package.json 声明但实际不使用会造成混淆，增加 node_modules 体积却无实际作用
+
+因此采用动态创建 `<script>` 标签的方式加载，既保证功能正常，又保持依赖管理的清晰。
 
 ### 功能限制
 

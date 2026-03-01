@@ -36,7 +36,8 @@ async function init() {
     if (gestureReady) {
       log('info', 'App', '手势追踪初始化完成');
     } else {
-      log('warn', 'App', '手势追踪初始化失败，可使用鼠标交互');
+      log('warn', 'App', '手势追踪初始化失败（请检查摄像头权限或网络连接），照片上传等基本功能仍可正常使用');
+      showToast('手势识别不可用，请检查摄像头权限或网络连接', 'warn');
     }
     
     animate();

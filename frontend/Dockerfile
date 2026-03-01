@@ -18,6 +18,8 @@ RUN npm run build
 # 生产阶段
 FROM --platform=$TARGETPLATFORM nginx:alpine
 
+RUN apk add --no-cache curl
+
 # 复制nginx配置
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 

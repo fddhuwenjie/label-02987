@@ -299,6 +299,7 @@ export function setTargetScale(scale) {
 
 export function getTargetScale() { return targetScale; }
 export function getIsExploded() { return isExploded; }
+export function getHeartScale() { return heartScale; }
 
 export function updateParticles(time) {
   if (!particleSystem) return;

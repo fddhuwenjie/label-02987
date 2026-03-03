@@ -1,4 +1,4 @@
-import { initScene, getRenderer, getScene, getCamera } from './scene.js';
+import { initScene, getComposer } from './scene.js';
 import { createParticles, updateParticles } from './particles.js';
 import { setupFileUpload, updatePhotos } from './photo.js';
 import { initHandTracking } from './gesture.js';
@@ -13,7 +13,7 @@ function animate() {
   updateParticles(time);
   updatePhotos(time);
   
-  getRenderer().render(getScene(), getCamera());
+  getComposer().render();
 }
 
 async function init() {

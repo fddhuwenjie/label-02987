@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { getScene } from './scene.js';
+import { getScene, BLOOM_LAYER } from './scene.js';
 
 const PARTICLE_COUNT = 15000;
 const STAR_COUNT = 3000;
@@ -10,6 +10,12 @@ let starSystem, sparkleSystem;
 let heartScale = 1;
 let targetScale = 1;
 let isExploded = false;
+
+// 照片植入特效：粒子从外圈向爱心中心汇聚
+let embedBurstSystem = null;
+let embedBurstActive = false;
+let embedBurstProgress = 0;
+const EMBED_BURST_COUNT = 300;
 
 // 生成爱心形状的点
 function heartShape(t, scale = 1) {
@@ -83,6 +89,7 @@ function createStarParticles() {
   });
   
   starSystem = new THREE.Points(geometry, material);
+  starSystem.layers.enable(BLOOM_LAYER);
   scene.add(starSystem);
 }
 
@@ -139,6 +146,7 @@ function createSparkleParticles() {
   });
   
   sparkleSystem = new THREE.Points(geometry, material);
+  sparkleSystem.layers.enable(BLOOM_LAYER);
   scene.add(sparkleSystem);
 }
 
@@ -262,8 +270,68 @@ export function createParticles() {
   });
   
   particleSystem = new THREE.Points(geometry, material);
+  particleSystem.layers.enable(BLOOM_LAYER);
   scene.add(particleSystem);
   particles = geometry;
+}
+
+// ── 照片植入粒子汇聚特效 ──────────────────────────────────────
+export function triggerPhotoEmbedBurst() {
+  const scene = getScene();
+
+  // 若已有实例，直接重置重播
+  if (embedBurstSystem) {
+    embedBurstActive = true;
+    embedBurstProgress = 0;
+    const pos = embedBurstSystem.geometry.getAttribute('position');
+    const col = embedBurstSystem.geometry.getAttribute('color');
+    _initEmbedBurstPositions(pos.array, col.array);
+    pos.needsUpdate = true;
+    col.needsUpdate = true;
+    embedBurstSystem.material.opacity = 1;
+    return;
+  }
+
+  const geometry = new THREE.BufferGeometry();
+  const positions = new Float32Array(EMBED_BURST_COUNT * 3);
+  const colors    = new Float32Array(EMBED_BURST_COUNT * 3);
+
+  _initEmbedBurstPositions(positions, colors);
+  geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+
+  const material = new THREE.PointsMaterial({
+    size: 2.2,
+    vertexColors: true,
+    transparent: true,
+    opacity: 1,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+  });
+
+  embedBurstSystem = new THREE.Points(geometry, material);
+  embedBurstSystem.layers.enable(BLOOM_LAYER);
+  scene.add(embedBurstSystem);
+  embedBurstActive = true;
+  embedBurstProgress = 0;
+}
+
+function _initEmbedBurstPositions(positions, colors) {
+  for (let i = 0; i < EMBED_BURST_COUNT; i++) {
+    // 从心形轮廓外侧散布出发
+    const t = (i / EMBED_BURST_COUNT) * Math.PI * 2;
+    const hx = 16 * Math.pow(Math.sin(t), 3);
+    const hy = 13 * Math.cos(t) - 5 * Math.cos(2 * t) - 2 * Math.cos(3 * t) - Math.cos(4 * t);
+    const spread = 1.6 + Math.random() * 0.8;
+    positions[i * 3]     = hx * spread;
+    positions[i * 3 + 1] = hy * spread;
+    positions[i * 3 + 2] = (Math.random() - 0.5) * 6;
+    // 金色 / 白色交替
+    const isGold = Math.random() > 0.35;
+    colors[i * 3]     = 1.0;
+    colors[i * 3 + 1] = isGold ? 0.75 + Math.random() * 0.25 : 1.0;
+    colors[i * 3 + 2] = isGold ? 0.1 + Math.random() * 0.2   : 0.9;
+  }
 }
 
 export function explodeParticles() {
@@ -331,7 +399,28 @@ export function updateParticles(time) {
   }
   positions.needsUpdate = true;
   particleSystem.rotation.y = Math.sin(time * 0.2) * 0.1;
-  
+
+  // ── 照片植入汇聚特效 ────────────────────────────────────────
+  if (embedBurstActive && embedBurstSystem) {
+    embedBurstProgress = Math.min(embedBurstProgress + 0.022, 1);
+    const pos = embedBurstSystem.geometry.getAttribute('position');
+    const convergeFactor = 0.09 + embedBurstProgress * 0.06;
+    for (let i = 0; i < EMBED_BURST_COUNT; i++) {
+      pos.array[i * 3]     *= (1 - convergeFactor);
+      pos.array[i * 3 + 1] *= (1 - convergeFactor);
+      pos.array[i * 3 + 2] *= (1 - convergeFactor * 0.5);
+    }
+    pos.needsUpdate = true;
+    // 后半段淡出
+    if (embedBurstProgress > 0.6) {
+      embedBurstSystem.material.opacity = 1 - (embedBurstProgress - 0.6) / 0.4;
+    }
+    if (embedBurstProgress >= 1) {
+      embedBurstActive = false;
+      embedBurstSystem.material.opacity = 0;
+    }
+  }
+
   // 更新背景星星
   if (starSystem) {
     starSystem.material.uniforms.time.value = time;

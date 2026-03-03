@@ -168,21 +168,22 @@ function handleGestureChange(gesture) {
       deselectPhoto();
     }
   } else if (gesture === 'closed') {
-    updateStatus('gesture-status', '手势状态: ✊ 五指并拢 - 粒子冲击+照片放大');
     if (getIsExploded()) {
-      // 已爆炸状态下并拢 = 取消选择
+      updateStatus('gesture-status', '手势状态: ✊ 五指并拢 - 取消选择');
       deselectPhoto();
     } else {
-      // Fix 2：直接触发爆炸，不再需要累积缩小到阈值
+      // 并拢时直接触发粒子爆炸 + 照片展示（带冷却防重复触发）
       if (explodeCooldown === 0) {
-        explodeCooldown = 60; // ~1 秒冷却（60 帧）
+        explodeCooldown = 90;
+        updateStatus('gesture-status', '手势状态: ✊ 五指并拢 - 粒子冲击！');
         if (explodeParticles() && hasPhotos()) {
-          setTimeout(() => showPhotos(), 500);
+          setTimeout(() => showPhotos(), 400);
+        } else {
+          explodeParticles();
         }
-      } else {
-        // 冷却中：允许手动缩小
-        setTargetScale(getTargetScale() - 0.05);
       }
+      // 缩小爱心
+      setTargetScale(getTargetScale() - 0.05);
     }
   } else if (gesture === 'pointing') {
     updateStatus('gesture-status', '手势状态: ☝️ 食指指向 - 选择/移动照片');

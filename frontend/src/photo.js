@@ -12,6 +12,16 @@ const PHOTO_WIDTH  = 38;
 const PHOTO_HEIGHT = 32;
 const EMBED_OPACITY = 0.90;
 
+/** 获取在指定 z 平面处的可见边界（世界坐标） */
+function getVisibleBoundsAtZ(camera, z) {
+  const dist = Math.abs(camera.position.z - z);
+  const vFov = camera.fov * Math.PI / 180;
+  const halfH = dist * Math.tan(vFov / 2);
+  const aspect = window.innerWidth / window.innerHeight;
+  const halfW = halfH * aspect;
+  return { minX: -halfW, maxX: halfW, minY: -halfH, maxY: halfH };
+}
+
 let photos = [];
 let selectedPhoto = null;
 let isExploded = false;
@@ -67,8 +77,10 @@ function addPhoto(imageUrl) {
 
   const zOffset = 1.5 + photos.length * 0.3;
   mesh.position.set(0, 0, zOffset);
-  mesh.scale.set(0.05, 0.05, 1);
+  mesh.scale.set(0.2, 0.2, 1);
   mesh.rotation.z = (Math.random() - 0.5) * 0.08;
+  // 确保照片始终渲染在粒子层之上，不被粒子遮挡
+  mesh.renderOrder = 2;
 
   mesh.userData = {
     baseOpacity: EMBED_OPACITY,
@@ -98,17 +110,37 @@ function addPhoto(imageUrl) {
   );
 }
 
-// ── 爆炸后展开 ───────────────────────────────────────────────
+// ── 爆炸后展开（照片放大展示）────────────────────────────────
 export function showPhotos() {
   isExploded = true;
+  const count = photos.length;
+  const camera = getCamera();
+  const photoZ = photos[0]?.userData?.zOffset ? photos[0].userData.zOffset + 4 : 8;
+  const bounds = getVisibleBoundsAtZ(camera, photoZ);
+
+  // 根据数量计算不重叠的半径：每张照片宽约 38 * showScale 单位
+  const showScale = count === 1 ? 1.6 : 0.9;
+  const photoHalfSize = (38 * showScale) / 2;
+  const minRadius = count > 1
+    ? Math.ceil((38 * showScale) / (2 * Math.sin(Math.PI / count))) + 4
+    : 0;
+  const maxRadiusX = Math.max(0, bounds.maxX - bounds.minX) / 2 - photoHalfSize;
+  const maxRadiusY = Math.max(0, bounds.maxY - bounds.minY) / 2 - photoHalfSize;
+  const maxRadius = Math.min(maxRadiusX, maxRadiusY);
+  const radius = Math.min(Math.max(minRadius, count > 1 ? 20 : 0), maxRadius);
+
   photos.forEach((photo, index) => {
-    photo.userData.baseOpacity = 1.0;
-    const angle  = (index / Math.max(photos.length, 1)) * Math.PI * 2;
-    const radius = photos.length > 1 ? 10 : 0;
+    photo.userData.baseOpacity  = 1.0;
+    photo.userData.showScale    = showScale;
+    photo.userData.expandFromS  = photo.scale.x;   // 记录展开前的当前 scale
+    photo.userData.expandT      = 0;
+    photo.userData.expanding    = true;
+
+    const angle = (index / Math.max(count, 1)) * Math.PI * 2;
     photo.position.set(
       Math.cos(angle) * radius,
       Math.sin(angle) * radius,
-      photo.userData.zOffset + 3,
+      photo.userData.zOffset + 4,
     );
   });
 }
@@ -118,6 +150,8 @@ export function hidePhotos() {
   isExploded = false;
   photos.forEach((photo) => {
     photo.userData.baseOpacity = EMBED_OPACITY;
+    photo.userData.showScale   = 1.0;
+    photo.userData.expanding   = false;
     photo.position.set(0, 0, photo.userData.zOffset);
   });
   selectedPhoto = null;
@@ -139,8 +173,11 @@ export function handlePhotoInteraction(fingerPos, isPointing) {
 
   const hs = getHeartScale();
   photos.forEach((p) => {
-    if (p !== selectedPhoto) {
-      p.scale.lerp(new THREE.Vector3(hs, hs, 1), 0.1);
+    // 入场动画期间由 updatePhotos 独立控制 scale，此处跳过避免冲突
+    if (p !== selectedPhoto && !p.userData.entering) {
+      // 展开态：showScale 是绝对尺寸；嵌入态：跟随爱心大小
+      const targetS = isExploded ? (p.userData.showScale ?? 1.6) : hs;
+      p.scale.lerp(new THREE.Vector3(targetS, targetS, 1), 0.08);
     }
   });
 
@@ -157,7 +194,16 @@ export function handlePhotoInteraction(fingerPos, isPointing) {
 
       selectedPhoto.position.x += (pos.x - selectedPhoto.position.x) * 0.15;
       selectedPhoto.position.y += (pos.y - selectedPhoto.position.y) * 0.15;
-      selectedPhoto.scale.set(hs * 1.3, hs * 1.3, 1);
+
+      // 限制照片不超出可视区域
+      const baseS = isExploded ? (selectedPhoto.userData.showScale ?? 1.6) : hs;
+      const halfW = (PHOTO_WIDTH * baseS * 1.2) / 2;
+      const halfH = (PHOTO_HEIGHT * baseS * 1.2) / 2;
+      const bounds = getVisibleBoundsAtZ(camera, selectedPhoto.position.z);
+      selectedPhoto.position.x = Math.max(bounds.minX + halfW, Math.min(bounds.maxX - halfW, selectedPhoto.position.x));
+      selectedPhoto.position.y = Math.max(bounds.minY + halfH, Math.min(bounds.maxY - halfH, selectedPhoto.position.y));
+
+      selectedPhoto.scale.set(baseS * 1.2, baseS * 1.2, 1);
     }
   }
 }
@@ -165,7 +211,8 @@ export function handlePhotoInteraction(fingerPos, isPointing) {
 export function deselectPhoto() {
   if (selectedPhoto) {
     const hs = getHeartScale();
-    selectedPhoto.scale.set(hs, hs, 1);
+    const targetS = isExploded ? (selectedPhoto.userData.showScale ?? 1.6) : hs;
+    selectedPhoto.scale.set(targetS, targetS, 1);
   }
   selectedPhoto = null;
 }
@@ -177,7 +224,7 @@ export function updatePhotos(time) {
   photos.forEach((photo, index) => {
     // ── 入场弹入动画（占位阶段也播放，让用户立刻看到反馈）───────
     if (photo.userData.entering) {
-      photo.userData.enterT += 0.04;
+      photo.userData.enterT += 0.06;
       const t = Math.min(photo.userData.enterT, 1);
 
       // 弹性缓出：先过冲到 1.3 再回落到 1.0
@@ -198,18 +245,31 @@ export function updatePhotos(time) {
       return;
     }
 
-    // ── 纹理就绪后亮度脉冲 ──────────────────────────────────
+    // ── 纹理就绪后亮度脉冲（不 return，继续让 scale 跟随心的大小）──
     if (photo.userData.flashT > 0) {
       photo.userData.flashT = Math.max(0, photo.userData.flashT - 0.04);
       const flash = photo.userData.flashT;
       photo.material.opacity = EMBED_OPACITY + flash * (1 - EMBED_OPACITY);
-      return;
     }
 
-    // ── 常规更新：跟随爱心缩放 ──────────────────────────────
-    if (photo !== selectedPhoto) {
-      photo.scale.x += (hs - photo.scale.x) * 0.06;
-      photo.scale.y += (hs - photo.scale.y) * 0.06;
+    // ── 展开放大弹入动画（从当前 scale 过渡到 showScale）────────
+    if (photo.userData.expanding) {
+      photo.userData.expandT = Math.min((photo.userData.expandT ?? 0) + 0.045, 1);
+      const et = photo.userData.expandT;
+      const fromS  = photo.userData.expandFromS ?? hs;
+      const toS    = photo.userData.showScale ?? 1.0;
+      // 从 fromS 弹到 toS，先过冲 20% 再回落
+      const eased  = easeOutCubic(et);
+      const overshootFactor = et < 0.7 ? 1 + 0.2 * Math.sin(et / 0.7 * Math.PI) : 1;
+      const s = fromS + (toS - fromS) * eased * overshootFactor;
+
+      if (photo !== selectedPhoto) photo.scale.set(s, s, 1);
+      if (et >= 1) photo.userData.expanding = false;
+    } else if (photo !== selectedPhoto) {
+      // ── 常规跟随：展开态用绝对尺寸，嵌入态跟随 heartScale ───
+      const targetS = isExploded ? (photo.userData.showScale ?? 1.6) : hs;
+      photo.scale.x += (targetS - photo.scale.x) * 0.06;
+      photo.scale.y += (targetS - photo.scale.y) * 0.06;
       photo.scale.z  = 1;
     }
 

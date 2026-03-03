@@ -374,6 +374,8 @@ export function updateParticles(time) {
   
   // 更新主爱心粒子
   particleSystem.material.uniforms.time.value = time;
+  
+  // 始终跟随手势，保证“并拢缩小”视觉一致
   heartScale += (targetScale - heartScale) * 0.05;
   particleSystem.material.uniforms.scale.value = heartScale;
   

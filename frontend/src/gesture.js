@@ -168,22 +168,29 @@ function handleGestureChange(gesture) {
       deselectPhoto();
     }
   } else if (gesture === 'closed') {
+    // 始终执行缩小，提供视觉反馈
+    setTargetScale(getTargetScale() - 0.05);
+
     if (getIsExploded()) {
       updateStatus('gesture-status', '手势状态: ✊ 五指并拢 - 取消选择');
       deselectPhoto();
     } else {
-      // 并拢时直接触发粒子爆炸 + 照片展示（带冷却防重复触发）
-      if (explodeCooldown === 0) {
+      // 缩小到一定程度（< 0.7）且冷却完毕，才触发粒子爆炸
+      const pct = Math.round(getTargetScale() * 100);
+      updateStatus('gesture-status', `手势状态: ✊ 五指并拢 - 缩小中 ${pct}%`);
+
+      if (getTargetScale() < 0.7 && explodeCooldown === 0) {
         explodeCooldown = 90;
         updateStatus('gesture-status', '手势状态: ✊ 五指并拢 - 粒子冲击！');
+        // 爆炸时将心弹回正常大小，让照片以自然尺寸出现
+        setTargetScale(1.0);
         if (explodeParticles() && hasPhotos()) {
           setTimeout(() => showPhotos(), 400);
         } else {
           explodeParticles();
+          if (!hasPhotos()) showToast('请先上传照片以体验完整效果', 'info');
         }
       }
-      // 缩小爱心
-      setTargetScale(getTargetScale() - 0.05);
     }
   } else if (gesture === 'pointing') {
     updateStatus('gesture-status', '手势状态: ☝️ 食指指向 - 选择/移动照片');

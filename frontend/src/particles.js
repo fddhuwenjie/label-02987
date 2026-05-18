@@ -10,6 +10,8 @@ let starSystem, sparkleSystem;
 let heartScale = 1;
 let targetScale = 1;
 let isExploded = false;
+let restoreFrame = 0;
+const RESTORE_TOTAL_FRAMES = 60;
 
 // 照片植入特效：粒子从外圈向爱心中心汇聚
 let embedBurstSystem = null;
@@ -359,6 +361,7 @@ export function explodeParticles() {
 
 export function restoreParticles() {
   isExploded = false;
+  restoreFrame = 0;
 }
 
 export function setTargetScale(scale) {
@@ -393,10 +396,12 @@ export function updateParticles(time) {
       velocities.array[i * 3 + 2] *= 0.98;
     }
   } else {
+    restoreFrame = Math.min(restoreFrame + 1, RESTORE_TOTAL_FRAMES);
+    const lerpFactor = restoreFrame / RESTORE_TOTAL_FRAMES;
     for (let i = 0; i < PARTICLE_COUNT; i++) {
-      positions.array[i * 3] += (originalPositions.array[i * 3] - positions.array[i * 3]) * 0.02;
-      positions.array[i * 3 + 1] += (originalPositions.array[i * 3 + 1] - positions.array[i * 3 + 1]) * 0.02;
-      positions.array[i * 3 + 2] += (originalPositions.array[i * 3 + 2] - positions.array[i * 3 + 2]) * 0.02;
+      positions.array[i * 3] += (originalPositions.array[i * 3] - positions.array[i * 3]) * lerpFactor;
+      positions.array[i * 3 + 1] += (originalPositions.array[i * 3 + 1] - positions.array[i * 3 + 1]) * lerpFactor;
+      positions.array[i * 3 + 2] += (originalPositions.array[i * 3 + 2] - positions.array[i * 3 + 2]) * lerpFactor;
     }
   }
   positions.needsUpdate = true;

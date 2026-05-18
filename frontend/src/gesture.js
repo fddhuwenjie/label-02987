@@ -9,8 +9,11 @@ let hands = null;
 let gestureState = 'none';
 let fingerPosition = { x: 0, y: 0 };
 let isProcessing = false;
-// 爆炸冷却，防止单次手势多帧重复触发
 let explodeCooldown = 0;
+
+let pendingGesture = 'none';
+let gestureDebounceStart = 0;
+const GESTURE_DEBOUNCE_MS = 300;
 
 async function loadMediaPipeHands() {
   return new Promise((resolve, reject) => {
@@ -71,7 +74,7 @@ export async function initHandTracking() {
 
     log('info', 'Gesture', '摄像头访问成功');
 
-    async function processFrame() {
+    async function processFrame(timestamp) {
       if (hands && videoElement.readyState >= 2 && !isProcessing) {
         isProcessing = true;
         try {
@@ -82,10 +85,26 @@ export async function initHandTracking() {
         isProcessing = false;
       }
       if (explodeCooldown > 0) explodeCooldown--;
+
+      if (pendingGesture !== 'none' && pendingGesture !== gestureState) {
+        if (gestureDebounceStart === 0) {
+          gestureDebounceStart = timestamp;
+        } else if (timestamp - gestureDebounceStart >= GESTURE_DEBOUNCE_MS) {
+          gestureState = pendingGesture;
+          gestureDebounceStart = 0;
+        }
+      } else {
+        gestureDebounceStart = 0;
+      }
+
+      if (gestureState !== 'none') {
+        handleGestureChange(gestureState);
+      }
+
       requestAnimationFrame(processFrame);
     }
 
-    processFrame();
+    requestAnimationFrame(processFrame);
     showToast('摄像头已启动', 'success');
     return true;
 
@@ -179,7 +198,7 @@ function handleGestureChange(gesture) {
       const pct = Math.round(getTargetScale() * 100);
       updateStatus('gesture-status', `手势状态: ✊ 五指并拢 - 缩小中 ${pct}%`);
 
-      if (getTargetScale() < 0.7 && explodeCooldown === 0) {
+      if (getTargetScale() < 0.5 && explodeCooldown === 0) {
         explodeCooldown = 90;
         updateStatus('gesture-status', '手势状态: ✊ 五指并拢 - 粒子冲击！');
         // 爆炸时将心弹回正常大小，让照片以自然尺寸出现
@@ -201,21 +220,22 @@ function onHandResults(results) {
   if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
     const landmarks = results.multiHandLandmarks[0];
 
-    // Fix 3：使用 MediaPipe 提供的手别标记
-    // multiHandedness[0].label 为 'Right' 或 'Left'（镜像后与直觉相反，取反处理）
     const handednessLabel = results.multiHandedness?.[0]?.label ?? 'Right';
-    // MediaPipe 在 facingMode:'user'（镜像）下 label 与实际手别相反
     const isRightHand = handednessLabel === 'Left';
 
     const indexTip = landmarks[8];
     fingerPosition.x = (1 - indexTip.x) * window.innerWidth;
     fingerPosition.y = indexTip.y * window.innerHeight;
 
-    const gesture = detectGesture(landmarks, isRightHand);
-    gestureState = gesture;
-    handleGestureChange(gesture);
+    const detected = detectGesture(landmarks, isRightHand);
 
-    if (gesture === 'pointing' && getIsExploded()) {
+    if (detected !== 'none') {
+      pendingGesture = detected;
+    }
+
+    const activeGesture = gestureState;
+
+    if (activeGesture === 'pointing' && getIsExploded()) {
       handlePhotoInteraction(fingerPosition, true);
     } else {
       handlePhotoInteraction(fingerPosition, false);
@@ -223,6 +243,8 @@ function onHandResults(results) {
   } else {
     updateStatus('gesture-status', '手势状态: 等待检测...');
     handlePhotoInteraction(fingerPosition, false);
+    pendingGesture = 'none';
+    gestureDebounceStart = 0;
   }
 }
 

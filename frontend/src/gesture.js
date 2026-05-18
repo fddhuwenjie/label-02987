@@ -11,6 +11,10 @@ let fingerPosition = { x: 0, y: 0 };
 let isProcessing = false;
 // 爆炸冷却，防止单次手势多帧重复触发
 let explodeCooldown = 0;
+// 手势状态去抖动
+let pendingGesture = null;
+let pendingGestureStartTime = 0;
+const GESTURE_DEBOUNCE_MS = 300;
 
 async function loadMediaPipeHands() {
   return new Promise((resolve, reject) => {
@@ -198,13 +202,12 @@ function handleGestureChange(gesture) {
 }
 
 function onHandResults(results) {
+  const now = performance.now();
+
   if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
     const landmarks = results.multiHandLandmarks[0];
 
-    // Fix 3：使用 MediaPipe 提供的手别标记
-    // multiHandedness[0].label 为 'Right' 或 'Left'（镜像后与直觉相反，取反处理）
     const handednessLabel = results.multiHandedness?.[0]?.label ?? 'Right';
-    // MediaPipe 在 facingMode:'user'（镜像）下 label 与实际手别相反
     const isRightHand = handednessLabel === 'Left';
 
     const indexTip = landmarks[8];
@@ -212,10 +215,24 @@ function onHandResults(results) {
     fingerPosition.y = indexTip.y * window.innerHeight;
 
     const gesture = detectGesture(landmarks, isRightHand);
-    gestureState = gesture;
-    handleGestureChange(gesture);
 
-    if (gesture === 'pointing' && getIsExploded()) {
+    if (gesture !== gestureState) {
+      if (gesture !== pendingGesture) {
+        pendingGesture = gesture;
+        pendingGestureStartTime = now;
+      } else if (now - pendingGestureStartTime >= GESTURE_DEBOUNCE_MS) {
+        gestureState = gesture;
+        pendingGesture = null;
+      }
+    } else {
+      pendingGesture = null;
+    }
+
+    if (gestureState !== 'none') {
+      handleGestureChange(gestureState);
+    }
+
+    if (gestureState === 'pointing' && getIsExploded()) {
       handlePhotoInteraction(fingerPosition, true);
     } else {
       handlePhotoInteraction(fingerPosition, false);

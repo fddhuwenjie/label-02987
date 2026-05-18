@@ -10,6 +10,12 @@ let starSystem, sparkleSystem;
 let heartScale = 1;
 let targetScale = 1;
 let isExploded = false;
+let isRestoring = false;
+let restoreProgress = 0;
+const RESTORE_FRAMES = 60;
+let restoreStartPositions = null;
+let explodeTimestamp = 0;
+const EXPLODE_STABLE_MS = 500;
 
 // 照片植入特效：粒子从外圈向爱心中心汇聚
 let embedBurstSystem = null;
@@ -337,6 +343,7 @@ function _initEmbedBurstPositions(positions, colors) {
 export function explodeParticles() {
   if (isExploded) return false;
   isExploded = true;
+  explodeTimestamp = performance.now();
   
   const positions = particles.getAttribute('position');
   const velocities = particles.getAttribute('velocity');
@@ -357,8 +364,20 @@ export function explodeParticles() {
   return true;
 }
 
+export function isExplosionStable() {
+  if (!isExploded) return true;
+  return performance.now() - explodeTimestamp >= EXPLODE_STABLE_MS;
+}
+
 export function restoreParticles() {
+  if (!isExploded) return;
   isExploded = false;
+  isRestoring = true;
+  restoreProgress = 0;
+
+  const positions = particles.getAttribute('position');
+  restoreStartPositions = new Float32Array(positions.array.length);
+  restoreStartPositions.set(positions.array);
 }
 
 export function setTargetScale(scale) {
@@ -391,6 +410,28 @@ export function updateParticles(time) {
       velocities.array[i * 3] *= 0.98;
       velocities.array[i * 3 + 1] *= 0.98;
       velocities.array[i * 3 + 2] *= 0.98;
+    }
+  } else if (isRestoring) {
+    restoreProgress++;
+    const t = Math.min(restoreProgress / RESTORE_FRAMES, 1);
+    const easeT = t * t * (3 - 2 * t);
+
+    for (let i = 0; i < PARTICLE_COUNT; i++) {
+      const startX = restoreStartPositions[i * 3];
+      const startY = restoreStartPositions[i * 3 + 1];
+      const startZ = restoreStartPositions[i * 3 + 2];
+      const targetX = originalPositions.array[i * 3];
+      const targetY = originalPositions.array[i * 3 + 1];
+      const targetZ = originalPositions.array[i * 3 + 2];
+
+      positions.array[i * 3] = startX + (targetX - startX) * easeT;
+      positions.array[i * 3 + 1] = startY + (targetY - startY) * easeT;
+      positions.array[i * 3 + 2] = startZ + (targetZ - startZ) * easeT;
+    }
+
+    if (restoreProgress >= RESTORE_FRAMES) {
+      isRestoring = false;
+      restoreStartPositions = null;
     }
   } else {
     for (let i = 0; i < PARTICLE_COUNT; i++) {

@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { getScene, getCamera } from './scene.js';
-import { getHeartScale, triggerPhotoEmbedBurst } from './particles.js';
+import { getHeartScale, triggerPhotoEmbedBurst, isExplosionStable } from './particles.js';
 import { showToast } from './utils.js';
 
 const MAX_PHOTOS = 10;
@@ -82,14 +82,16 @@ function addPhoto(imageUrl) {
   // 确保照片始终渲染在粒子层之上，不被粒子遮挡
   mesh.renderOrder = 2;
 
+  const explosionStable = isExplosionStable();
   mesh.userData = {
     baseOpacity: EMBED_OPACITY,
     zOffset,
     isPhoto: true,
-    entering: true,       // 立即开始入场，无需等待纹理
+    entering: explosionStable,
+    waitingForExplosion: !explosionStable,
     enterT: 0,
     textureReady: false,
-    flashT: 0,            // 纹理就绪后的亮度脉冲进度 (1→0)
+    flashT: 0,
   };
 
   scene.add(mesh);
@@ -222,7 +224,16 @@ export function updatePhotos(time) {
   const hs = getHeartScale();
 
   photos.forEach((photo, index) => {
-    // ── 入场弹入动画（占位阶段也播放，让用户立刻看到反馈）───────
+    if (photo.userData.waitingForExplosion && isExplosionStable()) {
+      photo.userData.waitingForExplosion = false;
+      photo.userData.entering = true;
+    }
+
+    if (photo.userData.waitingForExplosion) {
+      photo.material.opacity = 0;
+      return;
+    }
+
     if (photo.userData.entering) {
       photo.userData.enterT += 0.06;
       const t = Math.min(photo.userData.enterT, 1);

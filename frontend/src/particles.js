@@ -11,6 +11,15 @@ let heartScale = 1;
 let targetScale = 1;
 let isExploded = false;
 
+// 恢复爱心形状的 60 帧 LERP 过渡
+let restoring = false;
+let restoreFrames = 0;
+let restoreStartPositions = null;
+const RESTORE_TOTAL_FRAMES = 60;
+
+// 爆炸稳定追踪：记录 isExploded 最近一次变 true 的时间
+let explodedSinceTime = 0;
+
 // 照片植入特效：粒子从外圈向爱心中心汇聚
 let embedBurstSystem = null;
 let embedBurstActive = false;
@@ -337,6 +346,7 @@ function _initEmbedBurstPositions(positions, colors) {
 export function explodeParticles() {
   if (isExploded) return false;
   isExploded = true;
+  explodedSinceTime = performance.now();
   
   const positions = particles.getAttribute('position');
   const velocities = particles.getAttribute('velocity');
@@ -358,7 +368,38 @@ export function explodeParticles() {
 }
 
 export function restoreParticles() {
+  if (restoring) return;
+  const positions = particles.getAttribute('position');
+  restoreStartPositions = new Float32Array(positions.array);
+  restoreFrames = 0;
+  restoring = true;
   isExploded = false;
+}
+
+export function getExplodedSinceTime() {
+  return explodedSinceTime;
+}
+
+export function isExplosionStable(stableMs = 500) {
+  if (!isExploded) return true;
+  return performance.now() - explodedSinceTime >= stableMs;
+}
+
+export function waitForExplosionStable(stableMs = 500) {
+  return new Promise((resolve) => {
+    function poll(now) {
+      if (isExploded && now - explodedSinceTime >= stableMs) {
+        resolve();
+        return;
+      }
+      if (!isExploded) {
+        resolve();
+        return;
+      }
+      requestAnimationFrame(poll);
+    }
+    requestAnimationFrame(poll);
+  });
 }
 
 export function setTargetScale(scale) {
@@ -391,6 +432,33 @@ export function updateParticles(time) {
       velocities.array[i * 3] *= 0.98;
       velocities.array[i * 3 + 1] *= 0.98;
       velocities.array[i * 3 + 2] *= 0.98;
+    }
+  } else if (restoring) {
+    restoreFrames++;
+    const t = Math.min(restoreFrames / RESTORE_TOTAL_FRAMES, 1);
+    // easeInOutCubic：先慢后快再慢，形成平滑的入场曲线
+    const eased = t < 0.5
+      ? 4 * t * t * t
+      : 1 - Math.pow(-2 * t + 2, 3) / 2;
+    for (let i = 0; i < PARTICLE_COUNT; i++) {
+      const sx = restoreStartPositions[i * 3];
+      const sy = restoreStartPositions[i * 3 + 1];
+      const sz = restoreStartPositions[i * 3 + 2];
+      const ox = originalPositions.array[i * 3];
+      const oy = originalPositions.array[i * 3 + 1];
+      const oz = originalPositions.array[i * 3 + 2];
+      positions.array[i * 3] = sx + (ox - sx) * eased;
+      positions.array[i * 3 + 1] = sy + (oy - sy) * eased;
+      positions.array[i * 3 + 2] = sz + (oz - sz) * eased;
+    }
+    if (t >= 1) {
+      restoring = false;
+      restoreStartPositions = null;
+      for (let i = 0; i < PARTICLE_COUNT; i++) {
+        positions.array[i * 3] = originalPositions.array[i * 3];
+        positions.array[i * 3 + 1] = originalPositions.array[i * 3 + 1];
+        positions.array[i * 3 + 2] = originalPositions.array[i * 3 + 2];
+      }
     }
   } else {
     for (let i = 0; i < PARTICLE_COUNT; i++) {

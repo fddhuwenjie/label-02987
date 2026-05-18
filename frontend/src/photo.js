@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { getScene, getCamera } from './scene.js';
-import { getHeartScale, triggerPhotoEmbedBurst } from './particles.js';
+import { getHeartScale, triggerPhotoEmbedBurst, getIsExploded } from './particles.js';
 import { showToast } from './utils.js';
 
 const MAX_PHOTOS = 10;
@@ -25,6 +25,8 @@ function getVisibleBoundsAtZ(camera, z) {
 let photos = [];
 let selectedPhoto = null;
 let isExploded = false;
+let pendingPhotos = [];
+let explodedStableStart = 0;
 
 // ── 心形 Alpha 遮罩（一次生成，所有照片共用）─────────────────
 function createHeartAlphaMask() {
@@ -62,52 +64,68 @@ const heartAlphaMask = createHeartAlphaMask();
 function addPhoto(imageUrl) {
   const scene = getScene();
 
-  // 立刻用金色占位材质开始入场动画，给用户即时反馈
   const material = new THREE.MeshBasicMaterial({
     alphaMap: heartAlphaMask,
     transparent: true,
     opacity: 0,
     side: THREE.DoubleSide,
     depthWrite: false,
-    color: new THREE.Color(0xffd700),  // 金色占位，纹理就绪前可见
+    color: new THREE.Color(0xffd700),
   });
 
   const geometry = new THREE.PlaneGeometry(PHOTO_WIDTH, PHOTO_HEIGHT);
   const mesh = new THREE.Mesh(geometry, material);
 
-  const zOffset = 1.5 + photos.length * 0.3;
+  const zOffset = 1.5 + (photos.length + pendingPhotos.length) * 0.3;
   mesh.position.set(0, 0, zOffset);
   mesh.scale.set(0.2, 0.2, 1);
   mesh.rotation.z = (Math.random() - 0.5) * 0.08;
-  // 确保照片始终渲染在粒子层之上，不被粒子遮挡
   mesh.renderOrder = 2;
 
   mesh.userData = {
     baseOpacity: EMBED_OPACITY,
     zOffset,
     isPhoto: true,
-    entering: true,       // 立即开始入场，无需等待纹理
+    entering: true,
     enterT: 0,
     textureReady: false,
-    flashT: 0,            // 纹理就绪后的亮度脉冲进度 (1→0)
+    flashT: 0,
   };
 
-  scene.add(mesh);
-  photos.push(mesh);
+  const photoData = { mesh, imageUrl };
 
-  new THREE.TextureLoader().load(
-    imageUrl,
-    (texture) => {
-      material.map   = texture;
-      material.color = new THREE.Color(0xffffff);
-      material.needsUpdate = true;
-      mesh.userData.textureReady = true;
-      mesh.userData.flashT = 1.0;   // 触发亮度脉冲
-      triggerPhotoEmbedBurst();     // 粒子汇聚特效
-    },
-    undefined,
-    () => showToast('纹理加载失败', 'error'),
-  );
+  if (getIsExploded()) {
+    pendingPhotos.push(photoData);
+    new THREE.TextureLoader().load(
+      imageUrl,
+      (texture) => {
+        material.map = texture;
+        material.color = new THREE.Color(0xffffff);
+        material.needsUpdate = true;
+        mesh.userData.textureReady = true;
+        mesh.userData.flashT = 1.0;
+      },
+      undefined,
+      () => showToast('纹理加载失败', 'error'),
+    );
+  } else {
+    scene.add(mesh);
+    photos.push(mesh);
+
+    new THREE.TextureLoader().load(
+      imageUrl,
+      (texture) => {
+        material.map = texture;
+        material.color = new THREE.Color(0xffffff);
+        material.needsUpdate = true;
+        mesh.userData.textureReady = true;
+        mesh.userData.flashT = 1.0;
+        triggerPhotoEmbedBurst();
+      },
+      undefined,
+      () => showToast('纹理加载失败', 'error'),
+    );
+  }
 }
 
 // ── 爆炸后展开（照片放大展示）────────────────────────────────
@@ -219,6 +237,30 @@ export function deselectPhoto() {
 
 // ── 每帧更新 ─────────────────────────────────────────────────
 export function updatePhotos(time) {
+  const scene = getScene();
+
+  if (pendingPhotos.length > 0) {
+    if (!getIsExploded()) {
+      if (explodedStableStart === 0) {
+        explodedStableStart = performance.now();
+      } else if (performance.now() - explodedStableStart >= 500) {
+        while (pendingPhotos.length > 0) {
+          const { mesh } = pendingPhotos.shift();
+          scene.add(mesh);
+          photos.push(mesh);
+          if (mesh.userData.textureReady) {
+            triggerPhotoEmbedBurst();
+          }
+        }
+        explodedStableStart = 0;
+      }
+    } else {
+      explodedStableStart = 0;
+    }
+  } else {
+    explodedStableStart = 0;
+  }
+
   const hs = getHeartScale();
 
   photos.forEach((photo, index) => {
@@ -309,7 +351,7 @@ export function setupFileUpload() {
         showToast(`文件过大(最大5MB): ${file.name}`, 'error');
         continue;
       }
-      if (photos.length >= MAX_PHOTOS) {
+      if (photos.length + pendingPhotos.length >= MAX_PHOTOS) {
         showToast(`最多上传${MAX_PHOTOS}张照片`, 'warning');
         break;
       }
@@ -327,4 +369,4 @@ export function setupFileUpload() {
 }
 
 export function getPhotos()  { return photos; }
-export function hasPhotos()  { return photos.length > 0; }
+export function hasPhotos()  { return photos.length > 0 || pendingPhotos.length > 0; }

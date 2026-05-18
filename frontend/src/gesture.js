@@ -11,6 +11,11 @@ let fingerPosition = { x: 0, y: 0 };
 let isProcessing = false;
 // 爆炸冷却，防止单次手势多帧重复触发
 let explodeCooldown = 0;
+// 手势去抖动：缓存"原始检测帧"，使用 rAF 时间戳确认稳定 300ms 才切换
+let detectedGesture = 'none';
+let detectedAtTime = 0;
+let confirmedGesture = 'none';
+const GESTURE_DEBOUNCE_MS = 300;
 
 async function loadMediaPipeHands() {
   return new Promise((resolve, reject) => {
@@ -71,7 +76,7 @@ export async function initHandTracking() {
 
     log('info', 'Gesture', '摄像头访问成功');
 
-    async function processFrame() {
+    async function processFrame(now) {
       if (hands && videoElement.readyState >= 2 && !isProcessing) {
         isProcessing = true;
         try {
@@ -82,6 +87,11 @@ export async function initHandTracking() {
         isProcessing = false;
       }
       if (explodeCooldown > 0) explodeCooldown--;
+      // 每帧检查是否满足去抖动条件：当前检测手势已稳定超过 GESTURE_DEBOUNCE_MS
+      if (detectedGesture !== confirmedGesture
+          && now - detectedAtTime >= GESTURE_DEBOUNCE_MS) {
+        _applyConfirmedGesture(detectedGesture);
+      }
       requestAnimationFrame(processFrame);
     }
 
@@ -185,7 +195,7 @@ function handleGestureChange(gesture) {
         // 爆炸时将心弹回正常大小，让照片以自然尺寸出现
         setTargetScale(1.0);
         if (explodeParticles() && hasPhotos()) {
-          setTimeout(() => showPhotos(), 400);
+          _scheduleShowPhotosAfterExplosion();
         } else {
           explodeParticles();
           if (!hasPhotos()) showToast('请先上传照片以体验完整效果', 'info');
@@ -197,7 +207,45 @@ function handleGestureChange(gesture) {
   }
 }
 
+let lastExplodeTickTime = 0;
+let showPhotosAfterExplodeScheduled = false;
+
+function _scheduleShowPhotosAfterExplosion() {
+  if (showPhotosAfterExplodeScheduled) return;
+  showPhotosAfterExplodeScheduled = true;
+  const CHECK_INTERVAL_MS = 50;
+  const STABLE_REQUIRED_MS = 500;
+
+  function poll(now) {
+    if (!getIsExploded()) {
+      showPhotosAfterExplodeScheduled = false;
+      return;
+    }
+    if (lastExplodeTickTime === 0) {
+      lastExplodeTickTime = now;
+      requestAnimationFrame(poll);
+      return;
+    }
+    if (now - lastExplodeTickTime >= STABLE_REQUIRED_MS) {
+      lastExplodeTickTime = 0;
+      showPhotosAfterExplodeScheduled = false;
+      showPhotos();
+      return;
+    }
+    requestAnimationFrame(poll);
+  }
+  lastExplodeTickTime = 0;
+  requestAnimationFrame(poll);
+}
+
+function _applyConfirmedGesture(gesture) {
+  confirmedGesture = gesture;
+  gestureState = gesture;
+  handleGestureChange(gesture);
+}
+
 function onHandResults(results) {
+  const now = performance.now();
   if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
     const landmarks = results.multiHandLandmarks[0];
 
@@ -212,8 +260,10 @@ function onHandResults(results) {
     fingerPosition.y = indexTip.y * window.innerHeight;
 
     const gesture = detectGesture(landmarks, isRightHand);
-    gestureState = gesture;
-    handleGestureChange(gesture);
+    if (gesture !== detectedGesture) {
+      detectedGesture = gesture;
+      detectedAtTime = now;
+    }
 
     if (gesture === 'pointing' && getIsExploded()) {
       handlePhotoInteraction(fingerPosition, true);
@@ -221,8 +271,17 @@ function onHandResults(results) {
       handlePhotoInteraction(fingerPosition, false);
     }
   } else {
+    // 没有手部数据：重置检测状态
+    if (detectedGesture !== 'none') {
+      detectedGesture = 'none';
+      detectedAtTime = now;
+    }
     updateStatus('gesture-status', '手势状态: 等待检测...');
     handlePhotoInteraction(fingerPosition, false);
+  }
+  // 持续手势：只要确认的手势状态不是 none，每帧都执行缩放逻辑
+  if (confirmedGesture !== 'none') {
+    handleGestureChange(confirmedGesture);
   }
 }
 

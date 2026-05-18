@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { getScene, getCamera } from './scene.js';
-import { getHeartScale, triggerPhotoEmbedBurst } from './particles.js';
+import { getHeartScale, triggerPhotoEmbedBurst, getIsExploded, waitForExplosionStable } from './particles.js';
 import { showToast } from './utils.js';
 
 const MAX_PHOTOS = 10;
@@ -59,7 +59,11 @@ function createHeartAlphaMask() {
 const heartAlphaMask = createHeartAlphaMask();
 
 // ── 添加照片 ─────────────────────────────────────────────────
-function addPhoto(imageUrl) {
+async function addPhoto(imageUrl) {
+  // 爆炸动画进行中（isExploded 尚未稳定 500ms）时，推迟照片植入，避免与飞散的粒子穿透遮挡
+  if (getIsExploded()) {
+    await waitForExplosionStable(500);
+  }
   const scene = getScene();
 
   // 立刻用金色占位材质开始入场动画，给用户即时反馈
